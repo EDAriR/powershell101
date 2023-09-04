@@ -1,29 +1,25 @@
 @echo off
 
-REM 取得今天日期字串，格式為 yyyyMMdd
-for /f "delims=" %%a in ('powershell -command "Get-Date -Format 'yyyyMMdd'"') do set "todayDate=%%a"
+REM 現在の日付を取得し、/ を削除してyyyyMMdd形式に整形
+set "todayDate=%DATE:/=%"
 
-REM 路徑1，D:\work_space\
-set "path1=D:\work_space\"
+REM パス1の処理
+for %%I in (D:\work_space\okta_g_*.csv) do (
+    set "fileName=%%~nxI"
+    set "fileDate=!fileName:okta_g_=!"
+    set "fileDate=!fileDate:.csv=!"
 
-REM 路徑2，D:\work_space2\
-set "path2=D:\work_space2\"
-
-REM 路徑3，D:\work_space3\
-set "path3=D:\work_space3\"
-
-REM 檢查路徑1底下的檔案，刪除日期大於今天的檔案
-for %%f in ("%path1%\okta_g_*.csv") do (
-    set "fileName=%%~nxf"
-    set "fileDate=%%~nf"
-    set "fileDate=!fileDate:~8,8!"
-
+    REM 日付が今日より過去の場合、ファイルを削除
     if !fileDate! lss %todayDate% (
-        echo Deleted file: %%f
-        del "%%f"
+        del "%%I"
+        echo %%I を削除しました。
     )
 )
 
-REM 複製路徑2底下的 okta_g.csv 到路徑1 和 路徑3，並命名為 okta_g_{今天日期字串}.csv
-copy "%path2%\okta_g.csv" "%path1%\okta_g_%todayDate%.csv"
-copy "%path2%\okta_g.csv" "%path3%\okta_g_%todayDate%.csv"
+REM パス2からファイルをコピー
+copy "D:\work_space2\okta_g.csv" "D:\work_space\okta_g_%todayDate%.csv"
+echo D:\work_space2\okta_g.csv を D:\work_space\ にコピーしました。
+
+REM パス2からファイルをコピー（別のディレクトリ）
+copy "D:\work_space2\okta_g.csv" "D:\work_space3\okta_g_%todayDate%.csv"
+echo D:\work_space2\okta_g.csv を D:\work_space3\ にコピーしました。
