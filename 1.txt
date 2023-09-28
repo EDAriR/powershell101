@@ -1,0 +1,1597 @@
+package com.smflc.idm.dao;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.List;
+
+import org.apache.log4j.Logger;
+
+import com.ibm.icu.util.Calendar;
+import com.smflc.idm.constants.Constants;
+import com.smflc.idm.dto.IDMHRArrialDto;
+import com.smflc.idm.util.DatabaseUtil;
+import com.smflc.idm.util.MailUtil;
+import com.smflc.idm.util.MsgPropertyUtil;
+import com.smflc.idm.util.MsgPropertyUtil.Message;
+import com.smflc.idm.util.StringUtil;
+
+/**
+ * 発令内容区分一覧
+ *
+ *
+ * @author w802497
+ *
+ */
+public class IDMHRArrialDao {
+
+    //Loggerオブジェクトの生成
+	static Logger log = Logger.getLogger(IDMILPAuthDao.class.getName());
+
+	private static String sql01 = 
+		"DELETE FROM " 
+					+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_ARRIVAL_POLICY;
+
+	private static String sql02 = 
+		"INSERT INTO " 
+					+ Constants.SchemaName.DB_SCHEMA
+					+ Constants.TableName.T_HR_COM_ARRIVAL_POLICY
+			+ " (" 
+			+ " ANNOUNCEMENT_CODE, ANNOUNCEMENT_NAME, ANNOUNCEMENT_CLASS, "
+			+ " ANNOUNCEMENT_CONTENT, NEED_AUTHORIZATION_DATE, IS_15DAYS_TARGET "
+			+ " ) VALUES ("
+			+ "  ?,?,?,?,?,?" 
+			+ " )";
+
+	// 所属、役職、事業所、兼務データ特別更新 T_HR_COM_CHG_SPECIAL-->TBL_SSO_ID_UNION_NEW その１
+	private static String sql03a = 
+	   " SELECT " 
+		+  "     employee_number6, " 
+		+  "     sales_center_cd5, " 
+		+  "     sales_center_cd3, " 
+		+  "     title, " 
+		+  "     concurrent_department_01_cd, " 
+		+  "     concurrent_department_02_cd, " 
+		+  "     concurrent_department_03_cd, " 
+		+  "     concurrent_department_04_cd, " 
+		+  "     concurrent_department_05_cd, " 
+		+  "     concurrent_department_06_cd, " 
+		+  "     concurrent_department_07_cd, " 
+		+  "     concurrent_department_08_cd, " 
+		+  "     concurrent_department_09_cd, " 
+		+  "     concurrent_department_10_cd, " 
+		+  "     concurrent_department_11_cd, " 
+		+  "     concurrent_department_12_cd, " 
+		+  "     concurrent_department_13_cd, " 
+		+  "     concurrent_department_14_cd, " 
+		+  "     concurrent_department_15_cd " 
+		+  " FROM " 
+		+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_SPECIAL 
+		+  " WHERE " 
+		+  "     to_char(start_date, 'yyyymmdd') <= to_char(sysdate, 'yyyymmdd') " 
+		+  "     AND to_char(end_date, 'yyyymmdd') >= to_char(sysdate, 'yyyymmdd') "
+		+  "	 ORDER BY start_date " ;
+
+	// 所属、役職、事業所、兼務データ特別更新 T_HR_COM_CHG_SPECIAL-->TBL_SSO_ID_UNION_NEW その2
+	private static String sql03b = 
+		" UPDATE "
+		+  Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_SSO_ID_UNION_NEW 
+		+  " SET " 
+		+  "     sales_center_cd5 = ? , " 
+		+  "     sales_center_cd3 = ? , " 
+		+  "     position = ? , " 
+		+  "     concurrent_department_01_cd = ? , " 
+		+  "     concurrent_department_02_cd = ? , " 
+		+  "     concurrent_department_03_cd = ? , " 
+		+  "     concurrent_department_04_cd = ? , " 
+		+  "     concurrent_department_05_cd = ? , "
+		+  "     concurrent_department_06_cd = ? , "
+		+  "     concurrent_department_07_cd = ? , "
+		+  "     concurrent_department_08_cd = ? , "
+		+  "     concurrent_department_09_cd = ? , "
+		+  "     concurrent_department_10_cd = ? , "
+		+  "     concurrent_department_11_cd = ? , "
+		+  "     concurrent_department_12_cd = ? , "
+		+  "     concurrent_department_13_cd = ? , "
+		+  "     concurrent_department_14_cd = ? , "
+		+  "     concurrent_department_15_cd = ?   "
+		+  "     WHERE employee_number6 = ? " ;
+	
+	// 差分がある社員番号をtbl_hr_com_chgに挿入
+	private static String sql04 =
+			"DELETE FROM " + Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG;
+			
+	// 差分がある社員番号をtbl_hr_com_chgに挿入
+	private static String sql05 =
+	"INSERT INTO "
+			+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG
+			+ "( employee_number6 ) "
+			+ " SELECT "
+			+ "     employee_number6 "
+			+ " FROM "
+			+ "     ( "
+			+ "         SELECT "
+			+ "             employee_number6, "
+			+ "             announcement_date, "
+			+ "             announcement_class, "
+			+ "             authorization_date, "
+			+ "             sales_center_cd5, "
+			+ "             sales_center_cd3, "
+			+ "             position, "
+			+ "             concurrent_department_01_cd, "
+			+ "             concurrent_department_02_cd, "
+			+ "             concurrent_department_03_cd, "
+			+ "             concurrent_department_04_cd, "
+			+ "             concurrent_department_05_cd, "
+			+ "             concurrent_department_06_cd, "
+			+ "             concurrent_department_07_cd, "
+			+ "             concurrent_department_08_cd, "
+			+ "             concurrent_department_09_cd, "
+			+ "             concurrent_department_10_cd, "
+			+ "             concurrent_department_11_cd, "
+			+ "             concurrent_department_12_cd, "
+			+ "             concurrent_department_13_cd, "
+			+ "             concurrent_department_14_cd, "
+			+ "             concurrent_department_15_cd "
+			+ "         FROM "
+			+ 			Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM
+			+ "         MINUS "
+			+ "         SELECT "
+			+ "             employee_number6, "
+			+ "             announcement_date, "
+			+ "             announcement_class, "
+			+ "             authorization_date, "
+			+ "             sales_center_cd5, "
+			+ "             sales_center_cd3, "
+			+ "             position, "
+			+ "             concurrent_department_01_cd, "
+			+ "             concurrent_department_02_cd, "
+			+ "             concurrent_department_03_cd, "
+			+ "             concurrent_department_04_cd, "
+			+ "             concurrent_department_05_cd, "
+			+ "             concurrent_department_06_cd, "
+			+ "             concurrent_department_07_cd, "
+			+ "             concurrent_department_08_cd, "
+			+ "             concurrent_department_09_cd, "
+			+ "             concurrent_department_10_cd, "
+			+ "             concurrent_department_11_cd, "
+			+ "             concurrent_department_12_cd, "
+			+ "             concurrent_department_13_cd, "
+			+ "             concurrent_department_14_cd, "
+			+ "             concurrent_department_15_cd "
+			+ "         FROM "
+			+ 			Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_OLD
+			+ "     ) "
+			+ " WHERE "
+			+ "     employee_number6 IN ( "
+			+ "         SELECT "
+			+ "             comn.employee_number6 employee_number6 "
+			+ "         FROM "
+			+ 				Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_OLD + " como "
+			+ "             INNER JOIN "
+			+ 				Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM + " comn "
+			+ " 			ON como.employee_number6 = comn.employee_number6 "
+			+ "     ) " ;
+	 
+
+	// 入社日 >= Today の場合、Chg表より削除
+	private static String sql05a =
+	 " DELETE FROM  " 
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG
+		 + " WHERE " 
+		 + "     employee_number6 IN ( " 
+		 + "         SELECT " 
+		 + "             chg.employee_number6 employee_number6 " 
+		 + "         FROM " 
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG + " chg, " 
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM + "    hrcom " 
+		 + "         WHERE " 
+		 + "             chg.employee_number6 = hrcom.employee_number6 " 
+		 + "             AND to_char(hrcom.entering_company_date, 'YYYYMMDD') >= to_char(sysdate, 'YYYYMMDD') " 
+		 + "     ) " ;
+	 
+	// tbl_hr_com_chg補足
+	private static String sql06 =
+	 " UPDATE ( "
+				+ "  SELECT "
+				+ "      comc.employee_number6 employee_number6, "
+				+ "      fr_announcement_date, "
+				+ "      fr_announcement_class, "
+				+ "      fr_announcement_content, "
+				+ "      fr_authorization_date, "
+				+ "      fr_sales_center_cd5, "
+				+ "      fr_sales_center_cd3, "
+				+ "      fr_title, "
+				+ "      fr_concurrent_department_01_cd, "
+				+ "      fr_concurrent_department_02_cd, "
+				+ "      fr_concurrent_department_03_cd, "
+				+ "      fr_concurrent_department_04_cd, "
+				+ "      fr_concurrent_department_05_cd, "
+				+ "      fr_concurrent_department_06_cd, "
+				+ "      fr_concurrent_department_07_cd, "
+				+ "      fr_concurrent_department_08_cd, "
+				+ "      fr_concurrent_department_09_cd, "
+				+ "      fr_concurrent_department_10_cd, "
+				+ "      fr_concurrent_department_11_cd, "
+				+ "      fr_concurrent_department_12_cd, "
+				+ "      fr_concurrent_department_13_cd, "
+				+ "      fr_concurrent_department_14_cd, "
+				+ "      fr_concurrent_department_15_cd, "
+				+ "      to_announcement_date, "
+				+ "      to_announcement_class, "
+				+ "      to_announcement_content, "
+				+ "      to_authorization_date, "
+				+ "      to_sales_center_cd5, "
+				+ "      to_sales_center_cd3, "
+				+ "      to_title, "
+				+ "      to_concurrent_department_01_cd, "
+				+ "      to_concurrent_department_02_cd, "
+				+ "      to_concurrent_department_03_cd, "
+				+ "      to_concurrent_department_04_cd, "
+				+ "      to_concurrent_department_05_cd, "
+				+ "      to_concurrent_department_06_cd, "
+				+ "      to_concurrent_department_07_cd, "
+				+ "      to_concurrent_department_08_cd, "
+				+ "      to_concurrent_department_09_cd, "
+				+ "      to_concurrent_department_10_cd, "
+				+ "      to_concurrent_department_11_cd, "
+				+ "      to_concurrent_department_12_cd, "
+				+ "      to_concurrent_department_13_cd, "
+				+ "      to_concurrent_department_14_cd, "
+				+ "      to_concurrent_department_15_cd, "
+				+ "      como.announcement_date             o_announcement_date, "
+				+ "      como.announcement_class            o_announcement_class, "
+				+ "      como.announcement_content          o_announcement_content, "
+				+ "      como.authorization_date            o_authorization_date, "
+				+ "      como.sales_center_cd5              o_sales_center_cd5, "
+				+ "      como.sales_center_cd3              o_sales_center_cd3, "
+				+ "      como.position                      o_position, "
+				+ "      como.concurrent_department_01_cd   o_concurrent_department_01_cd, "
+				+ "      como.concurrent_department_02_cd   o_concurrent_department_02_cd, "
+				+ "      como.concurrent_department_03_cd   o_concurrent_department_03_cd, "
+				+ "      como.concurrent_department_04_cd   o_concurrent_department_04_cd, "
+				+ "      como.concurrent_department_05_cd   o_concurrent_department_05_cd, "
+				+ "      como.concurrent_department_06_cd   o_concurrent_department_06_cd, "
+				+ "      como.concurrent_department_07_cd   o_concurrent_department_07_cd, "
+				+ "      como.concurrent_department_08_cd   o_concurrent_department_08_cd, "
+				+ "      como.concurrent_department_09_cd   o_concurrent_department_09_cd, "
+				+ "      como.concurrent_department_10_cd   o_concurrent_department_10_cd, "
+				+ "      como.concurrent_department_11_cd   o_concurrent_department_11_cd, "
+				+ "      como.concurrent_department_12_cd   o_concurrent_department_12_cd, "
+				+ "      como.concurrent_department_13_cd   o_concurrent_department_13_cd, "
+				+ "      como.concurrent_department_14_cd   o_concurrent_department_14_cd, "
+				+ "      como.concurrent_department_15_cd   o_concurrent_department_15_cd, "
+				+ "      comn.announcement_date             n_announcement_date, "
+				+ "      comn.announcement_class            n_announcement_class, "
+				+ "      comn.announcement_content          n_announcement_content, "
+				+ "      comn.authorization_date            n_authorization_date, "
+				+ "      comn.sales_center_cd5              n_sales_center_cd5, "
+				+ "      comn.sales_center_cd3              n_sales_center_cd3, "
+				+ "      comn.position                      n_position, "
+				+ "      comn.concurrent_department_01_cd   n_concurrent_department_01_cd, "
+				+ "      comn.concurrent_department_02_cd   n_concurrent_department_02_cd, "
+				+ "      comn.concurrent_department_03_cd   n_concurrent_department_03_cd, "
+				+ "      comn.concurrent_department_04_cd   n_concurrent_department_04_cd, "
+				+ "      comn.concurrent_department_05_cd   n_concurrent_department_05_cd, "
+				+ "      comn.concurrent_department_06_cd   n_concurrent_department_06_cd, "
+				+ "      comn.concurrent_department_07_cd   n_concurrent_department_07_cd, "
+				+ "      comn.concurrent_department_08_cd   n_concurrent_department_08_cd, "
+				+ "      comn.concurrent_department_09_cd   n_concurrent_department_09_cd, "
+				+ "      comn.concurrent_department_10_cd   n_concurrent_department_10_cd, "
+				+ "      comn.concurrent_department_11_cd   n_concurrent_department_11_cd, "
+				+ "      comn.concurrent_department_12_cd   n_concurrent_department_12_cd, "
+				+ "      comn.concurrent_department_13_cd   n_concurrent_department_13_cd, "
+				+ "      comn.concurrent_department_14_cd   n_concurrent_department_14_cd, "
+				+ "      comn.concurrent_department_15_cd   n_concurrent_department_15_cd "
+				+ "  FROM "
+				+ 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG + " comc " 
+				+ "     INNER JOIN "
+				+ 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM + " comn " 
+				+ "		ON comc.employee_number6 = comn.employee_number6 "
+				+ "     INNER JOIN "
+				+ 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_OLD + " como " 
+				+ "		ON comc.employee_number6 = como.employee_number6 "
+				+ " ) "
+				+ " SET "
+				+ "     to_announcement_date = n_announcement_date, "
+				+ "     to_announcement_class = n_announcement_class, "
+				+ "     to_announcement_content = n_announcement_content, "
+				+ "     to_authorization_date = n_authorization_date, "
+				+ "     to_sales_center_cd5 = n_sales_center_cd5, "
+				+ "     to_sales_center_cd3 = n_sales_center_cd3, "
+				+ "     to_title = n_position, "
+				+ "     to_concurrent_department_01_cd = n_concurrent_department_01_cd, "
+				+ "     to_concurrent_department_02_cd = n_concurrent_department_02_cd, "
+				+ "     to_concurrent_department_03_cd = n_concurrent_department_03_cd, "
+				+ "     to_concurrent_department_04_cd = n_concurrent_department_04_cd, "
+				+ "     to_concurrent_department_05_cd = n_concurrent_department_05_cd, "
+				+ "     to_concurrent_department_06_cd = n_concurrent_department_06_cd, "
+				+ "     to_concurrent_department_07_cd = n_concurrent_department_07_cd, "
+				+ "     to_concurrent_department_08_cd = n_concurrent_department_08_cd, "
+				+ "     to_concurrent_department_09_cd = n_concurrent_department_09_cd, "
+				+ "     to_concurrent_department_10_cd = n_concurrent_department_10_cd, "
+				+ "     to_concurrent_department_11_cd = n_concurrent_department_11_cd, "
+				+ "     to_concurrent_department_12_cd = n_concurrent_department_12_cd, "
+				+ "     to_concurrent_department_13_cd = n_concurrent_department_13_cd, "
+				+ "     to_concurrent_department_14_cd = n_concurrent_department_14_cd, "
+				+ "     to_concurrent_department_15_cd = n_concurrent_department_15_cd, "
+				+ "     fr_announcement_date = o_announcement_date, "
+				+ "     fr_announcement_class = o_announcement_class, "
+				+ "     fr_announcement_content = o_announcement_content, "
+				+ "     fr_authorization_date = o_authorization_date, "
+				+ "     fr_sales_center_cd5 = o_sales_center_cd5, "
+				+ "     fr_sales_center_cd3 = o_sales_center_cd3, "
+				+ "     fr_title = o_position, "
+				+ "     fr_concurrent_department_01_cd = o_concurrent_department_01_cd, "
+				+ "     fr_concurrent_department_02_cd = o_concurrent_department_02_cd, "
+				+ "     fr_concurrent_department_03_cd = o_concurrent_department_03_cd, "
+				+ "     fr_concurrent_department_04_cd = o_concurrent_department_04_cd, "
+				+ "     fr_concurrent_department_05_cd = o_concurrent_department_05_cd, "
+				+ "     fr_concurrent_department_06_cd = o_concurrent_department_06_cd, "
+				+ "     fr_concurrent_department_07_cd = o_concurrent_department_07_cd, "
+				+ "     fr_concurrent_department_08_cd = o_concurrent_department_08_cd, "
+				+ "     fr_concurrent_department_09_cd = o_concurrent_department_09_cd, "
+				+ "     fr_concurrent_department_10_cd = o_concurrent_department_10_cd, "
+				+ "     fr_concurrent_department_11_cd = o_concurrent_department_11_cd, "
+				+ "     fr_concurrent_department_12_cd = o_concurrent_department_12_cd, "
+				+ "     fr_concurrent_department_13_cd = o_concurrent_department_13_cd, "
+				+ "     fr_concurrent_department_14_cd = o_concurrent_department_14_cd, "
+				+ "     fr_concurrent_department_15_cd = o_concurrent_department_15_cd "
+				;
+
+	/*
+	 * // 新権限発生日 < 新発令日 の場合、権限発生日変更のみであればCHG表より全行削除する private static String sql06a =
+	 * " DELETE FROM " + Constants.SchemaName.DB_SCHEMA +
+	 * Constants.TableName.T_HR_COM_CHG + " WHERE " +
+	 * "     to_authorization_date < to_announcement_date " +
+	 * "     AND to_announcement_date = fr_announcement_date " +
+	 * "     AND to_announcement_class = fr_announcement_class " +
+	 * "     AND to_sales_center_cd5 = fr_sales_center_cd5 " +
+	 * "     AND to_sales_center_cd3 = fr_sales_center_cd3 " +
+	 * "     AND to_title = fr_title " +
+	 * "     AND to_concurrent_department_01_cd = fr_concurrent_department_01_cd " +
+	 * "     AND to_concurrent_department_02_cd = fr_concurrent_department_02_cd " +
+	 * "     AND to_concurrent_department_03_cd = fr_concurrent_department_03_cd " +
+	 * "     AND to_concurrent_department_04_cd = fr_concurrent_department_04_cd " +
+	 * "     AND to_concurrent_department_05_cd = fr_concurrent_department_05_cd " ;
+	 * 
+	 * // 新権限発生日 < 新発令日の場合、権限発生日以外変更有れば、権限発生日をクリアする private static String sql06b =
+	 * " UPDATE ( " + "     SELECT " + "         employee_number6, " +
+	 * "         to_announcement_date, " + "         to_authorization_date " +
+	 * "     FROM " + Constants.SchemaName.DB_SCHEMA +
+	 * Constants.TableName.T_HR_COM_CHG + "     WHERE " +
+	 * "         to_authorization_date < to_announcement_date " +
+	 * "         AND ( to_announcement_date != fr_announcement_date " +
+	 * "               OR to_announcement_class != fr_announcement_class " +
+	 * "               OR to_sales_center_cd5 != fr_sales_center_cd5 " +
+	 * "               OR to_sales_center_cd3 != fr_sales_center_cd3 " +
+	 * "               OR to_title != fr_title " +
+	 * "               OR to_concurrent_department_01_cd != fr_concurrent_department_01_cd "
+	 * +
+	 * "               OR to_concurrent_department_02_cd != fr_concurrent_department_02_cd "
+	 * +
+	 * "               OR to_concurrent_department_03_cd != fr_concurrent_department_03_cd "
+	 * +
+	 * "               OR to_concurrent_department_04_cd != fr_concurrent_department_04_cd "
+	 * +
+	 * "               OR to_concurrent_department_05_cd != fr_concurrent_department_05_cd ) "
+	 * + " ) his1 " + " SET " + "     his1.to_authorization_date = NULL " ;
+	 */
+
+	// tbl_hr_com_chg --> tbl_hr_com_chg_his
+	private static String sql07 =
+	" INSERT INTO  " 
+	+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+	+ " ( " 
+	+ " 	employee_number6, " 
+	+ " 	last_name, " 
+	+ " 	first_name, "
+	+ " 	announcement_date, " 
+	+ " 	announcement_class, "
+	+ " 	announcement_content, " 
+	+ " 	authorization_date, " 
+	+ " 	fr_sales_center_cd5, " 
+	+ " 	fr_sales_center_cd3, " 
+	+ " 	fr_title, " 
+	+ " 	fr_concurrent_department_01_cd, " 
+	+ " 	fr_concurrent_department_02_cd, " 
+	+ " 	fr_concurrent_department_03_cd, " 
+	+ " 	fr_concurrent_department_04_cd, " 
+	+ " 	fr_concurrent_department_05_cd, " 
+    + "     fr_concurrent_department_06_cd, " 
+    + "     fr_concurrent_department_07_cd, " 
+    + "     fr_concurrent_department_08_cd, " 
+    + "     fr_concurrent_department_09_cd, " 
+    + "     fr_concurrent_department_10_cd, " 
+    + "     fr_concurrent_department_11_cd, " 
+    + "     fr_concurrent_department_12_cd, " 
+    + "     fr_concurrent_department_13_cd, " 
+    + "     fr_concurrent_department_14_cd, " 
+    + "     fr_concurrent_department_15_cd, " 
+	+ " 	to_sales_center_cd5, " 
+	+ " 	to_sales_center_cd3, " 
+	+ " 	to_title, " 
+	+ " 	to_concurrent_department_01_cd, " 
+	+ " 	to_concurrent_department_02_cd, " 
+	+ " 	to_concurrent_department_03_cd, " 
+	+ " 	to_concurrent_department_04_cd, " 
+	+ " 	to_concurrent_department_05_cd, " 
+    + "     to_concurrent_department_06_cd, " 
+    + "     to_concurrent_department_07_cd, " 
+    + "     to_concurrent_department_08_cd, " 
+    + "     to_concurrent_department_09_cd, " 
+    + "     to_concurrent_department_10_cd, " 
+    + "     to_concurrent_department_11_cd, " 
+    + "     to_concurrent_department_12_cd, " 
+    + "     to_concurrent_department_13_cd, " 
+    + "     to_concurrent_department_14_cd, " 
+    + "     to_concurrent_department_15_cd, "
+	+ " 	detection_date "
+	+ " ) " 
+    + " SELECT " 
+    + "     chg.employee_number6, " 
+	+ " 	com.last_name, "
+	+ " 	com.first_name, "
+    + "     chg.to_announcement_date, " 
+    + "     chg.to_announcement_class, " 
+    + "     chg.to_announcement_content, " 
+    + "     chg.to_authorization_date, " 
+    + "     chg.fr_sales_center_cd5, " 
+    + "     chg.fr_sales_center_cd3, " 
+    + "     chg.fr_title, " 
+    + "     chg.fr_concurrent_department_01_cd, " 
+    + "     chg.fr_concurrent_department_02_cd, " 
+    + "     chg.fr_concurrent_department_03_cd, " 
+    + "     chg.fr_concurrent_department_04_cd, " 
+    + "     chg.fr_concurrent_department_05_cd, " 
+    + "     chg.fr_concurrent_department_06_cd, " 
+    + "     chg.fr_concurrent_department_07_cd, " 
+    + "     chg.fr_concurrent_department_08_cd, " 
+    + "     chg.fr_concurrent_department_09_cd, " 
+    + "     chg.fr_concurrent_department_10_cd, " 
+    + "     chg.fr_concurrent_department_11_cd, " 
+    + "     chg.fr_concurrent_department_12_cd, " 
+    + "     chg.fr_concurrent_department_13_cd, " 
+    + "     chg.fr_concurrent_department_14_cd, " 
+    + "     chg.fr_concurrent_department_15_cd, " 
+    + "     chg.to_sales_center_cd5, " 
+    + "     chg.to_sales_center_cd3, " 
+    + "     chg.to_title, " 
+    + "     chg.to_concurrent_department_01_cd, " 
+    + "     chg.to_concurrent_department_02_cd, " 
+    + "     chg.to_concurrent_department_03_cd, " 
+    + "     chg.to_concurrent_department_04_cd, " 
+    + "     chg.to_concurrent_department_05_cd, " 
+    + "     chg.to_concurrent_department_06_cd, " 
+    + "     chg.to_concurrent_department_07_cd, " 
+    + "     chg.to_concurrent_department_08_cd, " 
+    + "     chg.to_concurrent_department_09_cd, " 
+    + "     chg.to_concurrent_department_10_cd, " 
+    + "     chg.to_concurrent_department_11_cd, " 
+    + "     chg.to_concurrent_department_12_cd, " 
+    + "     chg.to_concurrent_department_13_cd, " 
+    + "     chg.to_concurrent_department_14_cd, " 
+    + "     chg.to_concurrent_department_15_cd, " 
+    + "     systimestamp " 
+    + " FROM " 
+	+ 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG + " chg "
+	+ 		"INNER JOIN "
+	+ 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM + " com "
+	+ 		"ON chg.employee_number6 = com.employee_number6";
+
+	// 無効化な権限発生日をクリアする　その１
+	private static String sql07a =
+	 " SELECT " 
+	 + "     employee_number6, " 
+	 + "     TO_CHAR(MIN(announcement_date),'YYYYMMDD')　min_Anno_Date " 
+	 + " FROM " 
+	 + 		Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+	 + " WHERE " 
+	 + "     ( input_status != 'Done' " 
+	 + "       OR input_status IS NULL ) " 
+	 + " GROUP BY " 
+	 + "     employee_number6 " ;
+	 
+	// 無効化な権限発生日をクリアする　その2
+	private static String sql07b =
+	 " UPDATE "
+	 +	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+	 + " SET " 
+	 + "     authorization_date = NULL " 
+	 + " WHERE " 
+	 + "     TO_CHAR(authorization_date,'YYYYMMDD') < ? " 
+	 + "     AND employee_number6 = ? " 
+	 + "     AND ( input_status != 'Done' " 
+	 + "           OR input_status IS NULL ) " ;
+	 	 
+	// T_HR_COM_CHG_HISの補助列をクリア: 発令Type/Plus15Date/未処理変更行数/sendMailFlag
+	private static String sql08 =
+		" UPDATE "
+			+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+			+ " SET "
+			+ "    arrival_date = NULL, " 
+			+ "    announcement_type = NULL, " 
+			+ "    plus15_date = NULL, " 
+			+ "    send_mail_flag = NULL, " 
+			+ "    change_counts = NULL " 
+			+ " WHERE "  
+			+ "    input_status != 'Done' "  
+			+ "    OR input_status IS NULL";
+	
+	// T_HR_COM_CHG_HISの補助列再計算: 発令Type
+	private static String sql09 =
+		 " UPDATE ( " 
+		 + "     SELECT " 
+		 + "         his.announcement_class        annclass, " 
+		 + "         his.announcement_type         anntype, " 
+		 + "         plc.need_authorization_date   needauth, " 
+		 + "         plc.is_15days_target          needarr, " 
+		 + "         CASE " 
+		 + "             WHEN plc.need_authorization_date = 'Y' " 
+		 + "                  AND plc.is_15days_target = 'Y' THEN " 
+		 + "                 '1' " 
+		 + "             WHEN plc.need_authorization_date = 'N' " 
+		 + "                  AND plc.is_15days_target = 'Y' THEN " 
+		 + "                 '2' " 
+		 + "             WHEN plc.need_authorization_date = 'Y' " 
+		 + "                  AND plc.is_15days_target = 'N' THEN " 
+		 + "                 '3' " 
+		 + "             WHEN plc.need_authorization_date = 'N' " 
+		 + "                  AND plc.is_15days_target = 'N' THEN " 
+		 + "                 '4' " 
+		 + "         END antype " 
+		 + "     FROM " 
+		 + 			Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+		 + "	 	INNER JOIN "
+		 + 			Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_ARRIVAL_POLICY + " plc  " 
+		 + "         ON his.announcement_class = plc.announcement_class " 
+		 + "            AND ( his.input_status != 'Done' " 
+		 + "                  OR his.input_status IS NULL ) " 
+		 + " ) " 
+		 + " SET " 
+		 + "     anntype = antype " ;
+	
+	// T_HR_COM_CHG_HISの補助列再計算: 15営業日目（１） 発令日抽出
+	private static String sql10 =
+			" SELECT  "
+				 + " DISTINCT　to_char(announcement_date, 'YYYY/MM/DD') announcement_date " 
+				 + " FROM " 
+				 + Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+				 + " WHERE " 
+				 + "     his.announcement_date IS NOT NULL " 
+				 + "     AND his.announcement_type IN ( " 
+				 + "         '1', " 
+				 + "         '2' " 
+				 + "     ) " 
+				 + "     AND ( his.input_status <> 'Done' " 
+				 + "           OR his.input_status IS NULL ) " ;
+				 
+	
+	// T_HR_COM_CHG_HISの補助列再計算: 15営業日目（2） 発令日の+15営業日目をHISテーブルに反映
+	private static String sql11 =
+		  " UPDATE "
+				  + Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+				  + " SET " 
+				  + "     his.plus15_date = ? " 
+				  + " WHERE " 
+				  + "     to_char(announcement_date, 'YYYY/MM/DD') = ? " 
+				  + "     AND his.announcement_type IN ( " 
+				  + "         '1', " 
+				  + "         '2' " 
+				  + "     ) " 
+				  + "     AND ( his.input_status <> 'Done' " 
+				  + "           OR his.input_status IS NULL ) " ;
+	
+	// T_HR_COM_CHG_HISの補助列再計算: 未処理変更行数
+	private static String sql12 =
+		 " UPDATE ( " 
+			 + "     SELECT " 
+			 + "         his1.employee_number6   empnum, " 
+			 + "         his1.change_counts      chgcnt, " 
+			 + "         his2.cnt                cnt " 
+			 + "     FROM " 
+			 + 			Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his1 " 
+			 + "         INNER JOIN ( " 
+			 + "             SELECT " 
+			 + "                 employee_number6, " 
+			 + "                 COUNT(employee_number6) cnt " 
+			 + "             FROM " 
+			 + 				 Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+			 + "			 WHERE ( input_status != 'Done'OR input_status IS NULL ) "
+			 + "             GROUP BY " 
+			 + "                 employee_number6 " 
+			 + "         	) his2 ON his1.employee_number6 = his2.employee_number6 " 
+			 + "                   AND ( his1.input_status != 'Done' " 
+			 + "                         OR his1.input_status IS NULL ) " 
+			 + " ) " 
+			 + " SET " 
+			 + "     chgcnt = cnt " ;
+	
+	// 着任日＝権限発生日
+	private static String sql13 =
+		 " UPDATE "
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS
+		 + " SET " 
+		 + "     arrival_date = authorization_date " 
+		 + " WHERE " 
+		 + "     authorization_date IS NOT NULL " 
+		 + "     AND change_counts = '1' " 
+		 + "     AND ( input_status != 'Done' " 
+		 + "           OR input_status IS NULL ) " ;
+
+
+	//　着任日＝15営業日目
+	private static String sql14 =
+		  " UPDATE "
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+		 + " SET " 
+		 + "     arrival_date = plus15_date " 
+		 + " WHERE " 
+		 + "     his.authorization_date IS NULL " 
+		 + "     AND his.change_counts = '1' " 
+		 + "     AND ( his.input_status != 'Done' " 
+		 + "           OR his.input_status IS NULL ) " 
+		 + "     AND ( his.announcement_type = '1' " 
+		 + "           OR his.announcement_type = '2' ) " ;
+
+
+	//　着任日＝SystemDate
+	private static String sql15 =
+		  " UPDATE "
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+		 + " SET " 
+		 + "     arrival_date = to_char(sysdate, 'YYYY/MM/DD') " 
+		 + " WHERE " 
+		 + "     his.authorization_date IS NULL " 
+		 + "     AND his.announcement_type = '4' " 
+		 + "     AND his.change_counts = '1' " 
+		 + "     AND ( his.input_status != 'Done' " 
+		 + "           OR his.input_status IS NULL ) " ;
+
+
+	// Sendmail_Flag ＝１
+	private static String sql16 =
+		  " UPDATE "
+		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS  
+		 + " SET " 
+		 + "     send_mail_flag = '1' " 
+		 + " WHERE " 
+		 + "     authorization_date IS NULL " 
+		 + "     AND announcement_type = '3' " 
+		 + "     AND change_counts = '1' " 
+		 + "     AND ( input_status != 'Done' " 
+		 + "           OR input_status IS NULL ) " ;
+
+	// Sendmail_Flag ＝２
+//	private static String sql17 =
+//		  " UPDATE "
+//		 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS  
+//		 + " SET " 
+//		 + "     send_mail_flag = '2' " 
+//		 + " WHERE " 
+//		 + "     authorization_date IS NOT NULL " 
+//		 + "     AND announcement_type = '4' " 
+//		 + "     AND change_counts = '1' " 
+//		 + "     AND ( input_status != 'Done' " 
+//		 + "           OR input_status IS NULL ) " ;
+
+
+	// 複数変更（権限発生日有り） その１ 直近連携された権限発生日抽出
+	private static String sql18 =
+		 " SELECT " 
+			 + "     his1.employee_number6     employee_number6, " 
+			 + "     to_char(his1.authorization_date, 'YYYY/MM/DD')   authorization_date " 
+			 + " FROM " 
+			 + 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his1 " 
+			 + "     INNER JOIN ( " 
+			 + "         SELECT " 
+			 + "             employee_number6, " 
+			 + "             MAX(detection_date) detection_date2 " 
+			 + "         FROM " 
+			 + 			 Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS 
+			 + "         WHERE " 
+			 + "             authorization_date IS NOT NULL " 
+			 + "             AND change_counts != 1 " 
+			 + "                 AND arrival_date IS NULL " 
+			 + "                     AND ( input_status != 'Done' " 
+			 + "                           OR input_status IS NULL ) " 
+			 + "         GROUP BY " 
+			 + "             employee_number6 " 
+			 + "     ) his2 ON his1.employee_number6 = his2.employee_number6 " 
+			 + "               AND his1.detection_date = his2.detection_date2 " ;
+
+	// 複数変更（権限発生日有り） その２ 着任日 = 直近権限発生日
+	private static String sql19 =
+		 " UPDATE "
+			+ 	Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS 
+			 + " SET " 
+			 + "     arrival_date = ? " 
+			 + " WHERE " 
+			 + "     employee_number6 = ? " 
+			 + "     AND change_counts != 1 " 
+			 + "         AND arrival_date IS NULL " 
+			 + "             AND ( input_status != 'Done' " 
+			 + "                   OR input_status IS NULL ) " ;
+
+	// 複数変更（権限発生日無し）
+	private static String sql20 =
+		  " UPDATE ( " 
+				  + "     SELECT " 
+				  + "         his1.employee_number6   employee_number6, " 
+				  + "         his1.arrival_date       arrival_date, " 
+				  + "         his1.input_status       input_status, " 
+				  + "         his1.change_counts      change_counts, " 
+				  + "         his2.max_plus15_date    max_plus15_date " 
+				  + "     FROM " 
+				  + 	  Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his1 " 
+				  + "         INNER JOIN ( " 
+				  + "             SELECT " 
+				  + "                 employee_number6, " 
+				  + "                 MAX(plus15_date) max_plus15_date " 
+				  + "             FROM " 
+				  + 			  Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS  
+				  + "             GROUP BY " 
+				  + "                 employee_number6 " 
+				  + "         ) his2 ON his1.employee_number6 = his2.employee_number6 " 
+				  + "                   AND his1.change_counts != 1 " 
+				  + "                   AND his1.arrival_date IS NULL " 
+				  + "                   AND ( his1.input_status != 'Done' " 
+				  + "                         OR his1.input_status IS NULL ) " 
+				  + " ) " 
+				  + " SET " 
+				  + "     arrival_date = max_plus15_date " ;
+
+
+	// Sendmail_Flag ＝ ２
+	private static String sql21 =
+	  " UPDATE ( " 
+			 + "     SELECT " 
+			 + "         employee_number6, " 
+			 + "         send_mail_flag " 
+			 + "     FROM " 
+			 + Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS 
+			 + "     WHERE " 
+			 + "         arrival_date IS NULL " 
+			 + "         AND send_mail_flag IS NULL " 
+			 + "		 AND ( input_status != 'Done' " 
+			 + "		 OR input_status IS NULL ) " 
+			 + " ) " 
+			 + " SET " 
+					+ "     send_mail_flag = '2' ";
+//
+//
+//	// input_status変更
+//	private static String sql22 =
+//		" UPDATE "
+//			+ Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS  
+//			 + " SET " 
+//			 + "     input_status = 'Done' " 
+//			 + " WHERE " 
+//			 + "     to_char(arrival_date, 'YYYYMMDD') <= to_char(sysdate, 'YYYYMMDD') " ;
+
+
+//	// HIS表を全件出力用
+//	private static String sql23 =
+//		" SELECT * FROM " + Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS  ;
+
+	// Okta担当者へ連絡要対象者抽出
+	private static String sql24 =
+	  " SELECT " 
+	  + "     his.employee_number6          						employee_number6, " 
+	  + "     his.last_name                 						last_name, " 
+	  + "     his.first_name                						first_name, " 
+	  + "     TO_CHAR (his.detection_date, 'YYYY/MM/DD HH24:MI:SS') detection_date, " 
+	  + "     TO_CHAR (his.announcement_date, 'YYYY/MM/DD')         announcement_date, " 
+	  + "     his.announcement_class        						announcement_class, " 
+	  + "     his.announcement_content      						announcement_content, " 
+	  + "     TO_CHAR (his.authorization_date, 'YYYY/MM/DD')      	authorization_date, " 
+	  + "     TO_CHAR (his.arrival_date, 'YYYY/MM/DD')				arrival_date, " 
+	  + "     pol.need_authorization_date   						need_authorization_date, " 
+	  + "     pol.is_15days_target          						is_15days_target, " 
+	  + "     his.send_mail_flag									send_mail_flag " 
+	  + " FROM " 
+	  + 	  Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_CHG_HIS + " his " 
+	  + "     INNER JOIN "
+	  + 	  Constants.SchemaName.DB_SCHEMA + Constants.TableName.T_HR_COM_ARRIVAL_POLICY + " pol " 
+	  + "     ON his.send_mail_flag IS NOT NULL " 
+	  + "	  AND ( his.input_status != 'Done' or his.input_status is null ) "  
+	  + "     AND his.announcement_class = pol.announcement_class "
+	  + "	  Order by send_mail_flag, employee_number6, detection_date " ;
+	
+	
+	////////////////////////////////////////////////////////////////
+
+	
+
+	/**
+	 * クリア発令内容区分一覧テーブル
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public void deleteArrivalAll(DatabaseUtil con) throws Exception {
+		DatabaseUtil.update(con, sql01);
+	}
+
+	/**
+	 * 発令内容区分一覧テーブル データ登録
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean insertArrival(DatabaseUtil con, List<IDMHRArrialDto> list) throws Exception {
+
+		boolean flg = false;
+
+		String sql = sql02;
+
+		// 変数定義
+		Connection conn = null;
+		PreparedStatement ps = null;
+		String AnnouncementClass = null;
+
+		try {
+
+			// DBへのコネクションを作成する
+			conn = DatabaseUtil.getInstance().getConnection();
+
+			// 実行するSQL文とパラメータを指定する
+			ps = conn.prepareStatement(sql);
+
+			log.debug(MsgPropertyUtil.getMessage(Message.M8890, sql));
+
+			int count = 0;
+
+			int listCnt = list.size() - 1;
+
+			for (int i = 0; i < list.size(); i++) {
+
+				IDMHRArrialDto bean = list.get(i);
+
+				AnnouncementClass = bean.getAnnouncementClass();
+				if (AnnouncementClass.contains(Constants.Header19)) {
+					continue;
+				}
+
+				ps.setString(1, bean.getAnnouncementCode());
+				ps.setString(2, bean.getAnnouncementName());
+				ps.setString(3, AnnouncementClass);
+				ps.setString(4, bean.getAnnouncementContent());
+				ps.setString(5, bean.getNeedAuthorizationDate());
+				ps.setString(6, bean.getIs15DaysTarget());
+
+				ps.addBatch();
+
+				count++;
+
+				if (i % Constants.DBInfo.BATCH_CNT == 0 || i == listCnt) {
+					// INSERT文を実行する
+					ps.executeBatch();
+
+					log.info(MsgPropertyUtil.getMessage(Message.M8889, i));
+				}
+			}
+
+			flg = true;
+
+			// 処理件数を表示する
+			log.info(MsgPropertyUtil.getMessage(Message.M0001, Constants.TableName.T_HR_COM_ARRIVAL_POLICY, count));
+
+			// コミット
+			conn.commit();
+
+		} catch (Exception ex) {
+
+			flg = false;
+
+			// 例外発生時の処理
+			conn.rollback(); // ロールバックする
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+
+			log.warn(MsgPropertyUtil.getMessage(Message.M9005, AnnouncementClass, ex));
+
+		} finally {
+			// クローズ処理
+			con.close(ps);
+			con.close();
+		}
+
+		return flg;
+	}
+
+
+	/**
+	 * 所属、役職、事業所、兼務データ特別更新 T_HR_COM_CHG_SPECIAL-->TBL_SSO_ID_UNION_NEW
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean chgSpecial(DatabaseUtil con) throws Exception {
+
+		boolean flg = false;
+		log.info("COM_CHG_SPECIALをUnion_New表に反映開始");
+
+		String empId = null; 		      // 社員番号
+		String salesCenterCd5 = null; // 所属CD
+		String salesCenterCd3 = null; // 事業所CD
+		String title = null;             // 役職
+		String department1cd = null;     // 兼務
+		String department2cd = null;     // 兼務
+		String department3cd = null;     // 兼務
+		String department4cd = null;     // 兼務
+		String department5cd = null;     // 兼務
+
+		String sql = sql03a; 		// 特別対応対象者抽出
+		String sql_child = sql03b; 	// Union_New表に反映
+
+		Connection conn = null;
+		PreparedStatement ps = null;
+		PreparedStatement ps_child = null;
+		ResultSet rs = null;
+
+		try {
+
+			// DBへのコネクションを作成する
+			con = DatabaseUtil.getInstance();
+			conn = con.getConnection();
+
+			// 実行するSQL文とパラメータを指定する
+			ps = conn.prepareStatement(sql);
+			ps_child = conn.prepareStatement(sql_child);
+
+			// SELECTを実行する
+			log.debug(MsgPropertyUtil.getMessage(Message.M8890, sql));
+			rs = ps.executeQuery();
+
+			while (rs.next()) {
+
+				empId = StringUtil.nullToBlank(rs.getString("employee_number6"));
+				salesCenterCd5 = StringUtil.nullToBlank(rs.getString("sales_center_cd5"));
+				salesCenterCd3 = StringUtil.nullToBlank(rs.getString("sales_center_cd3"));
+				title = StringUtil.nullToBlank(rs.getString("title"));
+				department1cd = StringUtil.nullToBlank(rs.getString("concurrent_department_01_cd"));
+				department2cd = StringUtil.nullToBlank(rs.getString("concurrent_department_02_cd"));
+				department3cd = StringUtil.nullToBlank(rs.getString("concurrent_department_03_cd"));
+				department4cd = StringUtil.nullToBlank(rs.getString("concurrent_department_04_cd"));
+				department5cd = StringUtil.nullToBlank(rs.getString("concurrent_department_05_cd"));
+				var department06cd = StringUtil.nullToBlank(rs.getString("concurrent_department_06_cd"));
+				var department07cd = StringUtil.nullToBlank(rs.getString("concurrent_department_07_cd"));
+				var department08cd = StringUtil.nullToBlank(rs.getString("concurrent_department_08_cd"));
+				var department09cd = StringUtil.nullToBlank(rs.getString("concurrent_department_09_cd"));
+				var department10cd = StringUtil.nullToBlank(rs.getString("concurrent_department_10_cd"));
+				var department11cd = StringUtil.nullToBlank(rs.getString("concurrent_department_11_cd"));
+				var department12cd = StringUtil.nullToBlank(rs.getString("concurrent_department_12_cd"));
+				var department13cd = StringUtil.nullToBlank(rs.getString("concurrent_department_13_cd"));
+				var department14cd = StringUtil.nullToBlank(rs.getString("concurrent_department_14_cd"));
+				var department15cd = StringUtil.nullToBlank(rs.getString("concurrent_department_15_cd"));
+
+				ps_child.setString(1, salesCenterCd5);
+				ps_child.setString(2, salesCenterCd3);
+				ps_child.setString(3, title);
+				ps_child.setString(4, department1cd);
+				ps_child.setString(5, department2cd);
+				ps_child.setString(6, department3cd);
+				ps_child.setString(7, department4cd);
+				ps_child.setString(8, department5cd);
+				ps_child.setString(9, department06cd);
+				ps_child.setString(10, department07cd);
+				ps_child.setString(11, department08cd);
+				ps_child.setString(12, department09cd);
+				ps_child.setString(13, department10cd);
+				ps_child.setString(14, department11cd);
+				ps_child.setString(15, department12cd);
+				ps_child.setString(16, department13cd);
+				ps_child.setString(17, department14cd);
+				ps_child.setString(18, department15cd);
+				ps_child.setString(19, empId);
+
+				// SELECTを実行する
+				log.debug(MsgPropertyUtil.getMessage(Message.M8891, sql_child));
+				ps_child.executeQuery();
+
+			}
+
+			// コミット
+			conn.commit();
+			flg = true;
+			log.info("COM_CHG_SPECIALをUnion_New表に終了");
+		} catch (Exception ex) {
+
+			// 例外発生時の処理
+			flg = false;
+			conn.rollback();
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+			log.warn(MsgPropertyUtil.getMessage(Message.M0004, ex));
+
+		} finally {
+			// クローズ処理
+			if (ps != null)
+				ps.close();
+			if (ps_child != null)
+				ps_child.close();
+			if (con != null)
+				con.close();
+		}
+
+		return flg;
+	}
+	
+	
+	/**
+	 * クリアT_HR_COM_CHG
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean clearComChgDate(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("クリアT_HR_COM_CHG開始");
+		String sql1 = sql04;
+		flg = DatabaseUtil.update(con, sql1);
+		if (flg) {
+			log.info("クリアT_HR_COM_CHG完了");
+		}
+		return flg;
+	}
+
+	/**
+	 * COM --> T_HR_COM_CHG更新
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean insComChgDate(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("差分をT_HR_COM_CHGに挿入開始");
+		String sql1 = sql05;
+		String sql2 = sql05a;
+		String sql3 = sql06;
+		flg = DatabaseUtil.update(con, sql1); 		// 社員番号挿入
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql2); // 入社日 >= Today の場合、Chg表より削除
+		}
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql3); // 社員番号以外項目補足
+		}
+		if (flg) {
+			log.info("差分をT_HR_COM_CHGに挿入完了");
+		}
+
+		return flg;
+	}
+
+	/**
+	 * T_HR_COM_CHG --> T_HR_COM_CHG_HIS更新
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean insChgHisDate(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("T_HR_COM_CHGをT_HR_COM_CHG_HISに転記開始");
+		String sql = sql07;
+		flg = DatabaseUtil.update(con, sql);
+		if (flg) {
+			log.info("T_HR_COM_CHGをT_HR_COM_CHG_HISに転記完了");
+		}
+		return flg;
+	}
+
+	/**
+	 * 権限発生日 < 最小の発令日の場合、権限発生日を無視する
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean clearBadAuthDate(DatabaseUtil con) throws Exception {
+
+		boolean flg = false;
+		log.info("無効な権限発生日クリア開始");
+
+		String empId = null; 		// 社員番号
+		String minAnnoDate = null; 	// 最小発令日
+		String sql = sql07a; 		// 無効化な権限発生日をクリアする その１ 最小の 発令日を算出
+		String sql_child = sql07b; 	// 無効化な権限発生日をクリアする その2 権限発生日 < 最小の発令日の場合、権限発生日をクリアする
+
+		Connection conn = null;
+		PreparedStatement ps = null;
+		PreparedStatement ps_child = null;
+		ResultSet rs = null;
+
+		try {
+
+			// DBへのコネクションを作成する
+			con = DatabaseUtil.getInstance();
+			conn = con.getConnection();
+
+			// 実行するSQL文とパラメータを指定する
+			ps = conn.prepareStatement(sql);
+			ps_child = conn.prepareStatement(sql_child);
+
+			// SELECTを実行する
+			log.debug(MsgPropertyUtil.getMessage(Message.M8890, sql));
+			rs = ps.executeQuery();
+
+			while (rs.next()) {
+
+				empId = StringUtil.nullToBlank(rs.getString("employee_number6"));
+				minAnnoDate = StringUtil.nullToBlank(rs.getString("min_Anno_Date"));
+
+				ps_child.setString(1, minAnnoDate);
+				ps_child.setString(2, empId);
+
+				// SELECTを実行する
+				log.debug(MsgPropertyUtil.getMessage(Message.M8891, sql_child));
+				ps_child.executeQuery();
+
+			}
+
+			// コミット
+			conn.commit();
+			flg = true;
+			log.info("無効な権限発生日クリア終了");
+		} catch (Exception ex) {
+
+			// 例外発生時の処理
+			flg = false;
+			conn.rollback();
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+			log.warn(MsgPropertyUtil.getMessage(Message.M0004, ex));
+
+		} finally {
+			// クローズ処理
+			if (ps != null)
+				ps.close();
+			if (ps_child != null)
+				ps_child.close();
+			if (con != null)
+				con.close();
+		}
+
+		return flg;
+	}
+
+	/**
+	 * T_HR_COM_CHG_HISの補助列をクリア: 発令Type/Plus15Date/未処理変更行数/sendMailFlag
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean clearChgHisHelpCol(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("T_HR_COM_CHG_HISの補助列をクリア開始");
+		String sql1 = sql08;
+		flg = DatabaseUtil.update(con, sql1);
+		if (flg) {
+			log.info("T_HR_COM_CHG_HISの補助列をクリア完了");
+		}
+		return flg;
+	}
+
+	/**
+	 * T_HR_COM_CHG_HISの補助列を更新: 発令Type/Plus15Date/未処理変更行数
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean upChgHisHelpCol(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("T_HR_COM_CHG_HISの補助列を更新開始");
+		String sql1 = sql09; // 発令Type再計算
+		String sql = sql10; // 15営業日目再計算 その１ 発令日抽出
+		String sql_child = sql11; // 15営業日目再計算 その２ Plus15日更新
+		String sql4 = sql12; // 未処理変更行数
+
+		flg = DatabaseUtil.update(con, sql1); // 発令Type再計算
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql4); // 未処理変更行数再計算
+		}
+		if (flg) {
+			flg = updatePlus15Date(sql, sql_child); // 15営業日目再計算
+		}
+		if (flg) {
+			log.info("T_HR_COM_CHG_HISの補助列を更新完了");
+		}
+		return flg;
+	}
+
+	/**
+	 * T_HR_COM_CHG_HIS の Plus15Date列更新
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	private boolean updatePlus15Date(String sql, String sql_child) throws Exception {
+
+		boolean flg = false;
+
+		String strAnnouncementDate = null;
+
+		DatabaseUtil con = null;
+		Connection conn = null;
+		PreparedStatement ps = null;
+		PreparedStatement ps_child = null;
+		ResultSet rs = null;
+
+		try {
+
+			// Propertiesテーブルより祝日取得
+			List<String> strHolidays = DatabaseUtil.getProperties(con, "OrgChgwithArrivalDate", "Holiday");
+
+			// DBへのコネクションを作成する
+			conn = DatabaseUtil.getInstance().getConnection();
+
+			// 実行するSQL文とパラメータを指定する
+			ps = conn.prepareStatement(sql);
+			ps_child = conn.prepareStatement(sql_child);
+
+			// SELECTを実行する
+			log.debug("発令日を取得する： " + MsgPropertyUtil.getMessage(Message.M8890, sql));
+			rs = ps.executeQuery();
+
+			while (rs.next()) {
+				int count = 0;
+				int weekday = 0;
+				List<Integer> weekend2 = Arrays.asList(7, 1);
+				String strDate = null;
+				String arrivalDate = null;
+				Calendar cal = Calendar.getInstance();
+
+				strAnnouncementDate = rs.getString("announcement_date"); // 発令日（String）
+				if (strAnnouncementDate == null) {
+					continue;
+				}
+				SimpleDateFormat sdFormat = new SimpleDateFormat("yyyy/MM/dd");
+				cal.setTime(sdFormat.parse(strAnnouncementDate)); // 発令日
+
+				// 最終着任日を取得（発令日+15営業日目）
+				while (count < 16) {
+					cal.add(Calendar.DATE, 1); // 1日加算
+					strDate = cal.get(Calendar.YEAR) + "/" + (cal.get(Calendar.MONTH) + 1) + "/"
+							+ cal.get(Calendar.DATE); // 加算後の日付(String)
+					weekday = cal.get(Calendar.DAY_OF_WEEK); // 1日加算後の曜日 日曜日（1）,月曜日（2）・・・,土曜日（7）
+					// 営業日の場合,１をCountする。
+					if (!weekend2.contains(weekday) && !strHolidays.contains(strDate)) {
+						count = count + 1;
+					}
+					// 15営業日目は最終の着任日となる
+					if (count == 15) {
+						arrivalDate = cal.get(Calendar.YEAR) + "/" + (cal.get(Calendar.MONTH) + 1) + "/"
+								+ cal.get(Calendar.DATE);
+//							log.debug("発令日： " + strAnnouncementDate + "最終着任日：" + arrivalDate);
+						break;
+					}
+				}
+
+				log.info(strAnnouncementDate + "のarrival_Dateを更新する");
+				ps_child.setString(1, arrivalDate);
+				ps_child.setString(2, strAnnouncementDate);
+				ps_child.executeQuery();
+
+			}
+
+			// コミット
+			conn.commit();
+			flg = true;
+
+		} catch (Exception ex) {
+
+			flg = false;
+			conn.rollback();
+			// 例外発生時の処理
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+			log.warn(MsgPropertyUtil.getMessage(Message.M0004, ex));
+
+		} finally {
+			// クローズ処理
+			if (ps != null)
+				ps.close();
+			if (ps != null)
+				ps.close();
+			if (ps_child != null)
+				ps_child.close();
+		}
+
+		return flg;
+	}
+
+	/**
+	 * 着任日計算：単独発令/1回目発令
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean upChgHisSingle(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("着任日計算開始（単独発令/1回目発令）");
+		String sql1 = sql13; // 権限発生日がある発令、着任日=権限発生日
+		String sql2 = sql14; // 15営業日目対象発令、着任日=発令日Plus15Date
+		String sql3 = sql15; // 15営業日目対象外発令＋権限発生日不要な発令、着任日=SystemDate
+		String sql4 = sql16; // SendMailFlag 権限発生日必要な発令に権限発生日がない
+//		String sql5 = sql17; // SendMailFlag 権限発生日不要な発令に権限発生日がある
+		flg = DatabaseUtil.update(con, sql1);
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql2);
+		}
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql3);
+		}
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql4);
+		}
+//		if (flg) {
+//			flg = DatabaseUtil.update(con, sql5);
+//		}
+		if (flg) {
+			log.info("着任日計算完了（単独発令/1回目発令）");
+		}
+		return flg;
+	}
+
+	/**
+	 * 着任日計算：複数発令（変更）
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	public boolean upChgHisMult(DatabaseUtil con) throws Exception {
+		boolean flg = false;
+		con = DatabaseUtil.getInstance();
+
+		log.info("着任日計算開始（複数発令/変更）");
+		String sql = sql18; // 複数変更（権限発生日有り）
+		String sql_child = sql19; // 複数変更（権限発生日有り）
+		String sql2 = sql20; // 複数変更（権限発生日無し）
+		String sql3 = sql21; // SendMailFlag 着任日を算出できないデータ
+
+		flg = upArrivalDt(con, sql, sql_child); // 複数変更（権限発生日有り）
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql2); // 複数変更（権限発生日無し）
+		}
+		if (flg) {
+			flg = DatabaseUtil.update(con, sql3); // SendMailFlag 着任日を算出できないデータ
+		}
+		if (flg) {
+			log.info("着任日計算完了（複数発令/変更）");
+		}
+		return flg;
+	}
+
+	/**
+	 * 複数変更（権限発生日有り）場合の着任日計算
+	 * 
+	 * @param
+	 * @return
+	 * @throws IOException
+	 */
+	private boolean upArrivalDt(DatabaseUtil con, String sql, String sql_child) throws Exception {
+
+		boolean flg = false;
+		String empId = null; // 社員番号
+		String authDate = null; // 権限発生日
+
+		Connection conn = null;
+		PreparedStatement ps = null;
+		PreparedStatement ps_child = null;
+		ResultSet rs = null;
+
+		try {
+
+			// DBへのコネクションを作成する
+			con = DatabaseUtil.getInstance();
+			conn = con.getConnection();
+
+			// 実行するSQL文とパラメータを指定する
+			ps = conn.prepareStatement(sql);
+			ps_child = conn.prepareStatement(sql_child);
+
+			// SELECTを実行する
+			log.debug(MsgPropertyUtil.getMessage(Message.M8890, sql));
+			rs = ps.executeQuery();
+
+			while (rs.next()) {
+
+				empId = StringUtil.nullToBlank(rs.getString("employee_number6"));
+				authDate = StringUtil.nullToBlank(rs.getString("authorization_date"));
+
+				ps_child.setString(1, authDate);
+				ps_child.setString(2, empId);
+
+				// SELECTを実行する
+				log.debug(MsgPropertyUtil.getMessage(Message.M8891, sql_child));
+				ps_child.executeQuery();
+
+			}
+
+			// コミット
+			conn.commit();
+			flg = true;
+
+		} catch (Exception ex) {
+
+			// 例外発生時の処理
+			flg = false;
+			conn.rollback();
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+			log.warn(MsgPropertyUtil.getMessage(Message.M0004, ex));
+
+		} finally {
+			// クローズ処理
+			if (ps != null)
+				ps.close();
+			if (ps_child != null)
+				ps_child.close();
+			if (con != null)
+				con.close();
+		}
+
+		return flg;
+	}
+
+
+	/**
+	 * Okta担当者へメール連絡： 単独発令で、権限発生日投入必要な発令に権限発生日がない場合と権限発生日投入不要な発令に権限発生日がある場合
+	 * 
+	 * @throws Exception
+	 *
+	 */
+	public boolean sendMail(DatabaseUtil con) throws Exception {
+
+		boolean flg = false;
+		String sql = sql24;
+
+		// 変数定義
+		Connection conn = null;
+		PreparedStatement ps = null;
+		ResultSet rs = null;
+
+		// DBへのコネクションを作成する
+		con = DatabaseUtil.getInstance();
+		conn = con.getConnection();
+
+		// 実行するSQL文とパラメータを指定する
+		ps = conn.prepareStatement(sql);
+		log.debug(MsgPropertyUtil.getMessage(Message.M8890, sql));
+
+		// 変数定義
+		StringBuilder sb = new StringBuilder();
+		String csv_employee_number6 = null;
+		String csv_last_name = null;
+		String csv_first_name = null;
+		String csv_detection_date = null;
+		String csv_announcement_date = null;
+		String csv_announcement_class = null;
+		String csv_announcement_content = null;
+		String csv_authorization_date = null;
+		String csv_arrival_date = null;
+		String csv_need_authorization_date = null;
+		String csv_is_15days_target = null;
+		String csv_send_mail_flag = null;
+
+		try {
+
+			// SELECTを実行する
+			ps = conn.prepareStatement(sql);
+			rs = ps.executeQuery();
+
+			// メールアドレス重複存在時、該当社員情報取得
+			while (rs.next()) {
+
+				csv_employee_number6 = StringUtil.nullToBlank(rs.getString("employee_number6"));
+				csv_last_name = StringUtil.nullToBlank(rs.getString("last_name"));
+				csv_first_name = StringUtil.nullToBlank(rs.getString("first_name"));
+				csv_detection_date = StringUtil.nullToBlank(rs.getString("detection_date"));
+				csv_announcement_date = StringUtil.nullToBlank(rs.getString("announcement_date"));
+				csv_announcement_class = StringUtil.nullToBlank(rs.getString("announcement_class"));
+				csv_announcement_content = StringUtil.nullToBlank(rs.getString("announcement_content"));
+				csv_authorization_date = StringUtil.nullToBlank(rs.getString("authorization_date"));
+				csv_arrival_date = StringUtil.nullToBlank(rs.getString("arrival_date"));
+				csv_need_authorization_date = StringUtil.nullToBlank(rs.getString("need_authorization_date"));
+				csv_is_15days_target = StringUtil.nullToBlank(rs.getString("is_15days_target"));
+				csv_send_mail_flag = StringUtil.nullToBlank(rs.getString("send_mail_flag"));
+
+				sb.append("<tr>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_employee_number6);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_last_name);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_first_name);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_detection_date);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_announcement_date);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_announcement_class);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_announcement_content);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_authorization_date);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_arrival_date);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_need_authorization_date);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append(csv_is_15days_target);
+				sb.append("</td>");
+
+				sb.append("<td style=\"FONT-SIZE:13PX;\">");
+				sb.append("状況" + csv_send_mail_flag);
+				sb.append("</td>");
+
+				sb.append("</tr>");
+			}
+
+			String mail_sendMail_info = sb.toString();
+
+			if (mail_sendMail_info.length() > 0) {
+				log.info("特別な人事データがあったので、Okta担当者へ送信する");
+				flg = true;
+				flg = MailUtil.sendComAuthDate(mail_sendMail_info);
+			} else {
+				flg = true;
+			}
+
+		} catch (Exception ex) {
+
+			// 例外発生時の処理
+			ex.printStackTrace(); // エラー内容をコンソールに出力する
+			log.warn("人事データの特別データをOkta担当者へ送信処理が異常終了");
+
+		} finally {
+			// クローズ処理
+			con.close(ps);
+			con.close();
+		}
+
+		return flg;
+	}
+}
