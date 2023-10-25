@@ -1,0 +1,199 @@
+
+
+#SSLエラー対策として設定
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+# Script設置フォルダパス
+#$Current  = Split-Path $myInvocation.MyCommand.path
+$Current  = "D:\apps\idm01\TOOL\BackupFolderCompressDel"
+
+#環境変数設定
+. $Current\config.ps1
+
+#ファンクションファイル読み込み
+. $Current\Functions\logFunc.ps1
+. $Current\Functions\02filesFunc.ps1
+#. $Current\Functions\mailFunc.ps1
+
+
+#本プログラムの戻り値
+$RETURN_RESULT = 0
+$flg = $false
+
+#ログファイル名の初期化
+#$LogName = "RetireesUsers\compressFolders90DaysAgo"
+#$LogFileName = LogInit $LogName
+$LogFileName = "D:\apps\idm01\TOOL\BackupFolderCompressDel\log.log"
+
+#開始時時のメッセージ
+$msg = "[INFO] Process Start.."
+Write-Host(Log $msg $LogFileName)
+
+####################################################
+#作業日計算
+####################################################
+#作業日を確定、指定がある場合、指定日を利用、指定がなければ、本当のSystemDateを利用する
+$SystemDate = $null
+if ($SHITEI_DATE -eq $null){
+    $SystemDate = (Get-Date).Date
+}else{
+    $SystemDate = [datetime]::ParseExact($SHITEI_DATE,"yyyy/M/d",$null)
+}
+Write-Host(Log ("業務日：" + $SystemDate) $LogFileName)
+
+#1年前の日付(yyyyMMdd)  本日が2023/10/07の場合、$oneYearAgoDate  = 2022/10/06
+$oneYearAgoDate = getDateBefore -SystemDate　$SystemDate -yearsAgo 1 -monthsAgo 0 -daysAgo 1
+
+#3か月前の日付(yyyyMMdd)  本日が2023/10/07の場合、$threeMonthsAgoDate  = 2022/07/06
+$threeMonthsAgoDate = getDateBefore -SystemDate $SystemDate -yearsAgo 0 -monthsAgo 3 -daysAgo 1
+
+####################################################
+#管理Csv読み込む
+####################################################
+$ManageCsvFullName = "$Current\ManageCsv.csv"
+$ManageCsv = import-csv -Encoding Default $ManageCsvFullName
+               
+####################################################
+#圧縮と削除処理
+####################################################
+foreach ($line in $ManageCsv) {
+
+    $targetFolderPath = $CheckFlg = $OneYearAgoDeleteFlg = $CompressFlg = $null
+    
+    $CheckFlg            = $line.CheckFlg
+    if ($CheckFlg -eq "N"){
+        Continue
+    }
+    $targetFolderPath    = $line.FolderPath
+    $OneYearAgoDeleteFlg = $line.OneYearAgoDeleteFlg
+    $CompressFlg         = $line.CompressFlg
+
+    Write-Host(Log ("目標フォルダ：" + $targetFolderPath) $LogFileName)
+    Write-Host(Log ("1年前のもの削除：" + $OneYearAgoDeleteFlg) $LogFileName)
+    Write-Host(Log ("3ヶ月前もの圧縮：" + $CompressFlg) $LogFileName)
+    
+    #<#
+
+    ####################################################
+    #目標フォルダ直下フォルダ処理
+    ####################################################
+    $subfolders = Get-ChildItem -Path $targetFolderPath -Directory
+
+    if ($subfolders.Count -gt 0){
+        foreach ($subfolder in $subfolders){
+            Write-Host(Log ("確認先：[Folder]" + $subfolder.Name) $LogFileName)
+        
+            # フォルダとその子フォルダの配下に、ファイルがなければ、削除する。
+            if( isItEmptyFolder($subfolder.FullName)){
+                $flg = delFobj $subfolder.FullName $LogFileName
+                if(-not $flg){$RETURN_RESULT = 1}
+            }
+                
+            # フォルダとその子フォルダの配下に、ファイルがある場合、
+            if( ($CompressFlg -eq "Y") -and -not(isItEmptyFolder($subfolder.FullName)) ){
+
+                # 最終更新日が3か月超えた場合、圧縮する、圧縮後フォルダを削除する
+                $FolderLastUpDt = getLastUpdtInFolder $subfolder.FullName
+                if($FolderLastUpDt -lt $threeMonthsAgoDate){
+                    Write-Host(Log "フォルダが3か月超えたので、圧縮します。" $LogFileName)
+                    if (compressF $subfolder.FullName $LogFileName){
+                        #圧縮が済んだ後、削除
+                        $flg = delFobj $subfolder.FullName $LogFileName
+                        if(-not $flg){$RETURN_RESULT = 1}
+                    }else{
+                        $RETURN_RESULT = 1
+                        Write-Host(Log ($subfolder.Name + "の圧縮が失敗しました。") $LogFileName)
+                    }
+                } 
+
+            }
+        }
+    }
+
+    #>
+
+
+    #<#
+
+    ####################################################
+    #目標フォルダ直下ファイル処理
+    ####################################################
+    $subFiles = Get-ChildItem -Path $targetFolderPath -File
+
+    if ($subFiles.Count -gt 0){
+        foreach ($subFile in $subFiles){
+        
+            Write-Host(Log ("確認先：[File]" + $subFile.Name) $LogFileName)
+
+            #非Zipファイル対応
+            if( $subFile.Extension -ne ".zip"){
+            
+                $fileLastUpDt = $subFile.LastWriteTime.ToString("yyyyMMdd")
+            
+                # 最終更新日が3か月超えた場合、圧縮する、圧縮後ファイル削除する
+                if(($CompressFlg -eq "Y") -and ($fileLastUpDt -lt $threeMonthsAgoDate)){
+                    if (compressF $subFile.FullName $LogFileName){
+                        #圧縮が済んだ後、削除する
+                        $flg = delFobj $subFile.FullName $LogFileName
+                        if(-not $flg){$RETURN_RESULT = 1}
+                    }else{
+                        Write-Host(Log ($subFile.Name + "の圧縮が失敗しました。") $LogFileName)
+                    }
+                }
+
+                # 最終更新日が1年間超えた場合、削除する
+                if(($OneYearAgoDeleteFlg -eq "Y") -and ($fileLastUpDt -lt $oneYearAgoDate)){
+                    #$subFile.Delete()
+                    Write-Host(Log ($subFile.Name + "の最終更新日が1年間超えたので、削除する。") $LogFileName)
+                    $flg = delFobj $subFile.FullName $LogFileName
+                    if(-not $flg){$RETURN_RESULT = 1}
+                }
+            }
+
+       
+            #Zipファイル対応
+            if( ($OneYearAgoDeleteFlg -eq "Y") -and ( $subFile.Extension -eq ".zip")){
+            
+                #Zipファイルの場合、ファイル名の日付を取得する
+                $fileNameDt = getFileName8DigDateStr -theFile $subFile -startNubFrEnd 12 $LogFileName 
+            
+                #ファイル名の指定位置に日付がある場合
+                if( $fileNameDt -ne $null){
+                    #ファイルの日付が1年超えた場合、削除する
+                    if ($fileNameDt -lt $oneYearAgoDate ){
+                        #$subFile.Delete()
+                        Write-Host(Log ($subFile.Name + "の最終更新日が1年間超えたので、削除する。") $LogFileName)
+                        $flg = delFobj $subFile.FullName $LogFileName
+                        if(-not $flg){$RETURN_RESULT = 1}
+                    }
+                }
+
+                #ファイル最終更新日取得
+                $fileLastUpDt = $subFile.LastWriteTime.ToString("yyyyMMdd")
+                #ファイルの最終更新日が1年間超えた場合、削除する
+                if ($fileLastUpDt -lt $oneYearAgoDate ){
+                    #$subFile.Delete()
+                    Write-Host(Log ($subFile.Name + "の最終更新日が1年間超えたので、削除する。") $LogFileName)
+                    $flg = delFobj $subFile.FullName $LogFileName
+                    if(-not $flg){$RETURN_RESULT = 1}
+                }           
+            }
+        
+        
+        }
+    }
+
+    #>
+    $msg = "----------------------------------------------------------------------" 
+    Write-Host(Log $msg $LogFileName)
+}
+
+
+
+
+#終了時のメッセージ
+$msg = "[RESULT] Process finished.. ResultCode:" + [string]$RETURN_RESULT + "。"
+Write-Host(Log $msg $LogFileName)
+
+#Write-Debug "breakpoint"
+EXIT $RETURN_RESULT
